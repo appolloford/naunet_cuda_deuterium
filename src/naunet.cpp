@@ -53,8 +53,9 @@ Naunet::Naunet(){};
 
 Naunet::~Naunet(){};
 
-int Naunet::Init(int nsystem, double atol, double rtol) {
+int Naunet::Init(int nsystem, double atol, double rtol, int mxsteps) {
     n_system_ = nsystem;
+    mxsteps_  = mxsteps;
     atol_     = atol;
     rtol_     = rtol;
 
@@ -64,6 +65,9 @@ int Naunet::Init(int nsystem, double atol, double rtol) {
     //     printf("Invalid size of system!");
     //     return NAUNET_FAIL;
     // }
+
+    cudaMallocHost((void **)&h_ab, sizeof(realtype) * n_system_ * NEQUATIONS);
+    cudaMallocHost((void **)&h_data, sizeof(NaunetData) * n_system_);
 
     n_stream_in_use_ = nsystem / NSTREAMS >= 32 ? NSTREAMS : 1;
 
@@ -94,6 +98,8 @@ int Naunet::Init(int nsystem, double atol, double rtol) {
 
         flag = CVodeInit(cv_mem_[i], Fex, 0.0, cv_y_[i]);
         if (check_flag(&flag, "CVodeInit", 1)) return 1;
+        flag = CVodeSetMaxNumSteps(cv_mem_[i], mxsteps_);
+        if (check_flag(&flag, "CVodeSetMaxNumSteps", 0)) return 1;
         flag = CVodeSStolerances(cv_mem_[i], rtol_, atol_);
         if (check_flag(&flag, "CVodeSStolerances", 1)) return 1;
         flag = CVodeSetLinearSolver(cv_mem_[i], cv_ls_[i], cv_a_[i]);
@@ -129,6 +135,10 @@ int Naunet::Finalize() {
         cusolverSpDestroy(cusol_handle_[i]);
         cudaStreamDestroy(custream_[i]);
     }
+
+    cudaFreeHost(h_ab);
+    cudaFreeHost(h_data);
+
     /*  */
 
     return NAUNET_SUCCESS;
@@ -136,7 +146,7 @@ int Naunet::Finalize() {
 
 /*  */
 // To reset the size of cusparse solver
-int Naunet::Reset(int nsystem, double atol, double rtol) {
+int Naunet::Reset(int nsystem, double atol, double rtol, int mxsteps) {
 
     // if (nsystem < NSTREAMS ||  nsystem % NSTREAMS != 0) {
     //     printf("Invalid size of system!");
@@ -146,8 +156,15 @@ int Naunet::Reset(int nsystem, double atol, double rtol) {
     n_stream_in_use_ = nsystem / NSTREAMS >= 32 ? NSTREAMS : 1;
 
     n_system_ = nsystem;
+    mxsteps_  = mxsteps;
     atol_     = atol;
     rtol_     = rtol;
+
+    cudaFreeHost(h_ab);
+    cudaFreeHost(h_data);
+
+    cudaMallocHost((void **)&h_ab, sizeof(realtype) * n_system_ * NEQUATIONS);
+    cudaMallocHost((void **)&h_data, sizeof(NaunetData) * n_system_);
 
     int flag;
 
@@ -173,6 +190,8 @@ int Naunet::Reset(int nsystem, double atol, double rtol) {
 
         flag = CVodeInit(cv_mem_[i], Fex, 0.0, cv_y_[i]);
         if (check_flag(&flag, "CVodeInit", 1)) return 1;
+        flag = CVodeSetMaxNumSteps(cv_mem_[i], mxsteps_);
+        if (check_flag(&flag, "CVodeSetMaxNumSteps", 0)) return 1;
         flag = CVodeSStolerances(cv_mem_[i], rtol_, atol_);
         if (check_flag(&flag, "CVodeSStolerances", 1)) return 1;
         flag = CVodeSetLinearSolver(cv_mem_[i], cv_ls_[i], cv_a_[i]);
@@ -195,11 +214,6 @@ int Naunet::Solve(realtype *ab, realtype dt, NaunetData *data) {
 
     /* */
 
-    realtype *h_ab;
-    NaunetData *h_data;
-
-    cudaMallocHost((void **)&h_ab, sizeof(realtype) * n_system_ * NEQUATIONS);
-    cudaMallocHost((void **)&h_data, sizeof(NaunetData) * n_system_);
     for (int i = 0; i < n_system_ ; i++)
     {
         h_data[i] = data[i];
@@ -247,9 +261,6 @@ int Naunet::Solve(realtype *ab, realtype dt, NaunetData *data) {
     }
 
     cudaDeviceSynchronize();
-
-    cudaFreeHost(h_ab);
-    cudaFreeHost(h_data);
 
     /* */
 
