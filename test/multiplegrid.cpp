@@ -10,7 +10,7 @@
 #define NTIMESTEPS 10045
 
 int main() {
-    int nsystem      = 64;
+    int nsystem      = 1024;
     int nsteps       = 50;
     double spy       = 86400.0 * 365.0;
     double pi        = 3.14159265;
@@ -111,8 +111,8 @@ int main() {
         // float duration = (float)timer.elapsed() / 1e6;
         double duration = timer.elapsed();
         fprintf(ttxt, "%8.5e \n", duration);
-        // printf("Time = %13.7e yr, elapsed: %8.5e sec\n", time[i + 1],
-        // duration);
+        printf("Time = %13.7e yr, elapsed: %8.5e sec\n", time[i + 1],
+        duration);
     }
 
     fclose(fbin);

@@ -83,7 +83,9 @@ int Naunet::Init(int nsystem, double atol, double rtol, int mxsteps) {
         reduce_exec_policy_[i] = new SUNCudaBlockReduceExecPolicy(nsystem / n_stream_in_use_, 0, custream_[i]);
 
         cusparseCreate(&cusp_handle_[i]);
+        cusparseSetStream(cusp_handle_[i], custream_[i]);
         cusolverSpCreate(&cusol_handle_[i]);
+        cusolverSpSetStream(cusol_handle_[i], custream_[i]);
         cv_y_[i]  = N_VNew_Cuda(NEQUATIONS * nsystem / n_stream_in_use_);
         flag = N_VSetKernelExecPolicy_Cuda(cv_y_[i], stream_exec_policy_[i], reduce_exec_policy_[i]);
         if (check_flag(&flag, "N_VSetKernelExecPolicy_Cuda", 0)) return 1;
@@ -250,6 +252,7 @@ int Naunet::Solve(realtype *ab, realtype dt, NaunetData *data) {
         if (check_flag(&flag, "CVodeSetUserData", 1)) return 1;
 
         flag = CVode(cv_mem_[i], dt, cv_y_[i], &t0, CV_NORMAL);
+        if(check_flag(&flag, "CVode", 1)) return NAUNET_FAIL;
 
         N_VCopyFromDevice_Cuda(cv_y_[i]);
         realtype *local_ab = N_VGetHostArrayPointer_Cuda(cv_y_[i]);
