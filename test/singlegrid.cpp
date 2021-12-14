@@ -6,13 +6,7 @@
 #include "naunet_ode.h"
 #include "naunet_timer.h"
 
-// Maximal steps, equal to the rows of `timeres.dat` - 1
-#define NTIMESTEPS 10045
-
 int main() {
-
-    int nsteps   = 50; // The steps to evolve, must less than NTIMESTEPS
-
     double spy   = 86400.0 * 365.0;
     double pi    = 3.14159265;
     double rD    = 1.0e-5;
@@ -49,9 +43,9 @@ int main() {
     y[IDX_CI]      = 7.3e-6 * nH;
     y[IDX_GRAIN0I] = 1.3215e-12 * nH;
 
-    double time[NTIMESTEPS];
+    double time[10046];
     FILE *tfile = fopen("timeres.dat", "r");
-    for (int i = 0; i < NTIMESTEPS; i++) {
+    for (int i = 0; i < 10046; i++) {
         fscanf(tfile, "%lf\n", time + i);
     }
     fclose(tfile);
@@ -76,7 +70,7 @@ int main() {
     //     {
     //         dtyr = 1e5;
     //     }
-    for (int i = 0; i < nsteps; i++) {
+    for (int i = 0; i < 10045; i++) {
 #ifdef NAUNET_DEBUG
         EvalRates(rates, y, &data);
         for (int j = 0; j < NREACTIONS; j++) {

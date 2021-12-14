@@ -10,9 +10,7 @@
 #include "naunet_macros.h"
 #include "naunet_physics.h"
 
-#define IJth(A, i, j)        SM_ELEMENT_D(A, i, j)
-#define NVEC_CUDA_CONTENT(x) ((N_VectorContent_Cuda)(x->content))
-#define NVEC_CUDA_STREAM(x)  (NVEC_CUDA_CONTENT(x)->stream_exec_policy->stream())
+#define IJth(A, i, j) SM_ELEMENT_D(A, i, j)
 
 /* */
 __global__ void FexKernel(realtype *y, realtype *ydot, NaunetData *d_udata,
@@ -13663,8 +13661,6 @@ __global__ void FexKernel(realtype *y, realtype *ydot, NaunetData *d_udata,
 int Fex(realtype t, N_Vector u, N_Vector udot, void *user_data) {
     /* */
 
-    cudaStream_t stream = *(NVEC_CUDA_STREAM(u));
-
     realtype *y         = N_VGetDeviceArrayPointer_Cuda(u);
     realtype *ydot      = N_VGetDeviceArrayPointer_Cuda(udot);
     NaunetData *h_udata = (NaunetData *)user_data;
@@ -13677,16 +13673,16 @@ int Fex(realtype t, N_Vector u, N_Vector udot, void *user_data) {
 
     // copy the user data for each system/cell
     cudaMalloc((void **)&d_udata, sizeof(NaunetData) * nsystem);
-    cudaMemcpyAsync(d_udata, h_udata, sizeof(NaunetData) * nsystem,
-               cudaMemcpyHostToDevice, stream);
-    // cudaDeviceSynchronize();
+    cudaMemcpy(d_udata, h_udata, sizeof(NaunetData) * nsystem,
+               cudaMemcpyHostToDevice);
+    cudaDeviceSynchronize();
 
     unsigned block_size = min(BLOCKSIZE, nsystem);
     unsigned grid_size =
-        max(1, min(MAX_NSYSTEMS_PER_STREAM / BLOCKSIZE, nsystem / BLOCKSIZE));
-    FexKernel<<<grid_size, block_size, 0, stream>>>(y, ydot, d_udata, nsystem);
+        max(1, min(MAXNGROUPS / BLOCKSIZE, nsystem / BLOCKSIZE));
+    FexKernel<<<grid_size, block_size>>>(y, ydot, d_udata, nsystem);
 
-    // cudaDeviceSynchronize();
+    cudaDeviceSynchronize();
     cudaError_t cuerr = cudaGetLastError();
     if (cuerr != cudaSuccess) {
         fprintf(stderr, ">>> ERROR in fex: cudaGetLastError returned %s\n",

@@ -10,9 +10,7 @@
 #include "naunet_macros.h"
 #include "naunet_physics.h"
 
-#define IJth(A, i, j)        SM_ELEMENT_D(A, i, j)
-#define NVEC_CUDA_CONTENT(x) ((N_VectorContent_Cuda)(x->content))
-#define NVEC_CUDA_STREAM(x)  (NVEC_CUDA_CONTENT(x)->stream_exec_policy->stream())
+#define IJth(A, i, j) SM_ELEMENT_D(A, i, j)
 
 /* */
 int InitJac(SUNMatrix jmatrix) {
@@ -18205,9 +18203,6 @@ __global__ void JacKernel(realtype *y, realtype *data, NaunetData *d_udata,
 int Jac(realtype t, N_Vector u, N_Vector fu, SUNMatrix jmatrix, void *user_data,
         N_Vector tmp1, N_Vector tmp2, N_Vector tmp3) {
     /* */
-
-    cudaStream_t stream = *(NVEC_CUDA_STREAM(u));
-
     realtype *y         = N_VGetDeviceArrayPointer_Cuda(u);
     realtype *data      = SUNMatrix_cuSparse_Data(jmatrix);
     NaunetData *h_udata = (NaunetData *)user_data;
@@ -18216,16 +18211,16 @@ int Jac(realtype t, N_Vector u, N_Vector fu, SUNMatrix jmatrix, void *user_data,
     int nsystem = SUNMatrix_cuSparse_NumBlocks(jmatrix);
 
     cudaMalloc((void **)&d_udata, sizeof(NaunetData) * nsystem);
-    cudaMemcpyAsync(d_udata, h_udata, sizeof(NaunetData) * nsystem,
-               cudaMemcpyHostToDevice, stream);
-    // cudaDeviceSynchronize();
+    cudaMemcpy(d_udata, h_udata, sizeof(NaunetData) * nsystem,
+               cudaMemcpyHostToDevice);
+    cudaDeviceSynchronize();
 
     unsigned block_size = min(BLOCKSIZE, nsystem);
     unsigned grid_size =
-        max(1, min(MAX_NSYSTEMS_PER_STREAM / BLOCKSIZE, nsystem / BLOCKSIZE));
-    JacKernel<<<grid_size, block_size, 0, stream>>>(y, data, d_udata, nsystem);
+        max(1, min(MAXNGROUPS / BLOCKSIZE, nsystem / BLOCKSIZE));
+    JacKernel<<<grid_size, block_size>>>(y, data, d_udata, nsystem);
 
-    // cudaDeviceSynchronize();
+    cudaDeviceSynchronize();
     cudaError_t cuerr = cudaGetLastError();
     if (cuerr != cudaSuccess) {
         fprintf(stderr, ">>> ERROR in jac: cudaGetLastError returned %s\n",

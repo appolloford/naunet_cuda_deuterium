@@ -5,7 +5,6 @@
 #include <sundials/sundials_math.h>   // contains the macros ABS, SUNSQR, EXP
 #include <sundials/sundials_types.h>  // defs. of realtype, sunindextype
 /* */
-#include <nvector/nvector_cuda.h>
 #include <sunlinsol/sunlinsol_cusolversp_batchqr.h>
 /* */
 
@@ -23,10 +22,10 @@ class Naunet {
    public:
     Naunet();
     ~Naunet();
-    int Init(int nsystem = MAX_NSYSTEMS, double atol = 1e-20, double rtol = 1e-5, int mxsteps=500);
+    int Init(int nsystem = 1, double atol = 1e-20, double rtol = 1e-5);
     int Finalize();
     /* */
-    int Reset(int nsystem = MAX_NSYSTEMS, double atol = 1e-20, double rtol = 1e-5, int mxsteps=500);
+    int Reset(int nsystem = 1, double atol = 1e-20, double rtol = 1e-5);
     /* */
     int Solve(realtype *ab, realtype dt, NaunetData *data);
 #ifdef PYMODULE
@@ -36,29 +35,18 @@ class Naunet {
 
    private:
     int n_system_;
-    int mxsteps_;
     realtype atol_;
     realtype rtol_;
 
+    // NaunetData *m_data;
+    N_Vector cv_y_;
+    SUNMatrix cv_a_;
+    void *cv_mem_;
+    SUNLinearSolver cv_ls_;
+
     /* */
-
-    int n_stream_in_use_;
-
-    N_Vector cv_y_[NSTREAMS];
-    SUNMatrix cv_a_[NSTREAMS];
-    void *cv_mem_[NSTREAMS];
-    SUNLinearSolver cv_ls_[NSTREAMS];
-
-    cusparseHandle_t cusp_handle_[NSTREAMS];
-    cusolverSpHandle_t cusol_handle_[NSTREAMS];
-    cudaStream_t custream_[NSTREAMS];
-    SUNCudaThreadDirectExecPolicy *stream_exec_policy_[NSTREAMS];
-    SUNCudaBlockReduceExecPolicy *reduce_exec_policy_[NSTREAMS];
-
-    // pinned host memory, required by cuda stream
-    realtype *h_ab;
-    NaunetData *h_data;
-
+    cusparseHandle_t cusp_handle_;
+    cusolverSpHandle_t cusol_handle_;
     /*  */
 };
 

@@ -1,7 +1,7 @@
 # Naunet config document
 
 [general]
-creation_time = "13/12/2021 16:26:46"
+creation_time = "14/12/2021 13:21:34"
 name = "naunet_cuda_deuterium"
 description = "example"
 
