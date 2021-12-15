@@ -70,6 +70,8 @@ int Naunet::Init(int nsystem, double atol, double rtol, int mxsteps) {
     cudaMallocHost((void **)&h_data, sizeof(NaunetData) * n_system_);
 
     n_stream_in_use_ = nsystem / NSTREAMS >= 32 ? NSTREAMS : 1;
+    int n_system_per_stream = nsystem / n_stream_in_use_;
+    int n_thread_per_stream = std::min(BLOCKSIZE, n_system_per_stream);
 
     cudaError_t cuerr;
     int flag;
@@ -77,19 +79,19 @@ int Naunet::Init(int nsystem, double atol, double rtol, int mxsteps) {
     for (int i = 0; i < n_stream_in_use_; i++) {
 
         cuerr = cudaStreamCreate(&custream_[i]);
-        // SUNCudaThreadDirectExecPolicy stream_exec_policy(nsystem / n_stream_in_use_, custream_[i]);
-        // SUNCudaBlockReduceExecPolicy reduce_exec_policy(nsystem / n_stream_in_use_, 0, custream_[i]);
-        stream_exec_policy_[i] = new SUNCudaThreadDirectExecPolicy(nsystem / n_stream_in_use_, custream_[i]);
-        reduce_exec_policy_[i] = new SUNCudaBlockReduceExecPolicy(nsystem / n_stream_in_use_, 0, custream_[i]);
+        // SUNCudaThreadDirectExecPolicy stream_exec_policy(n_thread_per_stream, custream_[i]);
+        // SUNCudaBlockReduceExecPolicy reduce_exec_policy(n_thread_per_stream, 0, custream_[i]);
+        stream_exec_policy_[i] = new SUNCudaThreadDirectExecPolicy(n_thread_per_stream, custream_[i]);
+        reduce_exec_policy_[i] = new SUNCudaBlockReduceExecPolicy(n_thread_per_stream, 0, custream_[i]);
 
         cusparseCreate(&cusp_handle_[i]);
         cusparseSetStream(cusp_handle_[i], custream_[i]);
         cusolverSpCreate(&cusol_handle_[i]);
         cusolverSpSetStream(cusol_handle_[i], custream_[i]);
-        cv_y_[i]  = N_VNew_Cuda(NEQUATIONS * nsystem / n_stream_in_use_);
+        cv_y_[i]  = N_VNew_Cuda(NEQUATIONS * n_system_per_stream);
         flag = N_VSetKernelExecPolicy_Cuda(cv_y_[i], stream_exec_policy_[i], reduce_exec_policy_[i]);
         if (check_flag(&flag, "N_VSetKernelExecPolicy_Cuda", 0)) return 1;
-        cv_a_[i]  = SUNMatrix_cuSparse_NewBlockCSR(nsystem / n_stream_in_use_, NEQUATIONS, NEQUATIONS,
+        cv_a_[i]  = SUNMatrix_cuSparse_NewBlockCSR(n_system_per_stream, NEQUATIONS, NEQUATIONS,
                                                 NNZ, cusp_handle_[i]);
         cv_ls_[i] = SUNLinSol_cuSolverSp_batchQR(cv_y_[i], cv_a_[i], cusol_handle_[i]);
         // abstol = N_VNew_Cuda(neq);
@@ -124,6 +126,48 @@ int Naunet::Init(int nsystem, double atol, double rtol, int mxsteps) {
     return NAUNET_SUCCESS;
 };
 
+int Naunet::DebugInfo() {
+    long int nst, nfe, nsetups, nje, netf, nge, nni, ncfn;
+    int flag;
+
+    /*  */
+
+    size_t cuSpInternalSize, cuSpWorkSize;
+
+    for (int i=0; i<n_stream_in_use_; i++) {
+
+        flag = CVodeGetNumSteps(cv_mem_[i], &nst);
+        check_flag(&flag, "CVodeGetNumSteps", 1);
+        flag = CVodeGetNumRhsEvals(cv_mem_[i], &nfe);
+        check_flag(&flag, "CVodeGetNumRhsEvals", 1);
+        flag = CVodeGetNumLinSolvSetups(cv_mem_[i], &nsetups);
+        check_flag(&flag, "CVodeGetNumLinSolvSetups", 1);
+        flag = CVodeGetNumErrTestFails(cv_mem_[i], &netf);
+        check_flag(&flag, "CVodeGetNumErrTestFails", 1);
+        flag = CVodeGetNumNonlinSolvIters(cv_mem_[i], &nni);
+        check_flag(&flag, "CVodeGetNumNonlinSolvIters", 1);
+        flag = CVodeGetNumNonlinSolvConvFails(cv_mem_[i], &ncfn);
+        check_flag(&flag, "CVodeGetNumNonlinSolvConvFails", 1);
+
+        flag = CVodeGetNumJacEvals(cv_mem_[i], &nje);
+        check_flag(&flag, "CVodeGetNumJacEvals", 1);
+
+        flag = CVodeGetNumGEvals(cv_mem_[i], &nge);
+        check_flag(&flag, "CVodeGetNumGEvals", 1);
+
+        SUNLinSol_cuSolverSp_batchQR_GetDeviceSpace(cv_ls_[i], &cuSpInternalSize, &cuSpWorkSize);
+
+        printf("\nFinal Statistics of %d stream:\n", i);
+        printf("nst = %-6ld nfe  = %-6ld nsetups = %-6ld nje = %ld\n", nst, nfe, nsetups, nje);
+        printf("nni = %-6ld ncfn = %-6ld netf = %-6ld    nge = %ld\n \n", nni, ncfn, netf, nge);
+        printf("cuSolverSp numerical factorization workspace size (in bytes) = %ld\n", cuSpWorkSize);
+        printf("cuSolverSp internal Q, R buffer size (in bytes) = %ld\n", cuSpInternalSize);
+    }
+    /*  */
+
+    return NAUNET_SUCCESS;
+}
+
 int Naunet::Finalize() {
 
     /* */
@@ -156,6 +200,8 @@ int Naunet::Reset(int nsystem, double atol, double rtol, int mxsteps) {
     // }
 
     n_stream_in_use_ = nsystem / NSTREAMS >= 32 ? NSTREAMS : 1;
+    int n_system_per_stream = nsystem / n_stream_in_use_;
+    int n_thread_per_stream = std::min(BLOCKSIZE, n_system_per_stream);
 
     n_system_ = nsystem;
     mxsteps_  = mxsteps;
@@ -176,13 +222,20 @@ int Naunet::Reset(int nsystem, double atol, double rtol, int mxsteps) {
         SUNLinSolFree(cv_ls_[i]);
         CVodeFree(&cv_mem_[i]);
 
-        // SUNCudaThreadDirectExecPolicy stream_exec_policy(nsystem / n_stream_in_use_, custream_[i]);
-        // SUNCudaBlockReduceExecPolicy reduce_exec_policy(nsystem / n_stream_in_use_, 0, custream_[i]);
+        // SUNCudaThreadDirectExecPolicy stream_exec_policy(n_thread_per_stream, custream_[i]);
+        // SUNCudaBlockReduceExecPolicy reduce_exec_policy(n_thread_per_stream, 0, custream_[i]);
 
-        cv_y_[i] = N_VNew_Cuda(NEQUATIONS * nsystem / n_stream_in_use_);
+        cv_y_[i] = N_VNew_Cuda(NEQUATIONS * n_system_per_stream);
+
+        delete stream_exec_policy_[i];
+        delete reduce_exec_policy_[i];
+
+        stream_exec_policy_[i] = new SUNCudaThreadDirectExecPolicy(n_thread_per_stream, custream_[i]);
+        reduce_exec_policy_[i] = new SUNCudaBlockReduceExecPolicy(n_thread_per_stream, 0, custream_[i]);
+
         flag = N_VSetKernelExecPolicy_Cuda(cv_y_[i], stream_exec_policy_[i], reduce_exec_policy_[i]);
         if (check_flag(&flag, "N_VSetKernelExecPolicy_Cuda", 0)) return 1;
-        cv_a_[i] = SUNMatrix_cuSparse_NewBlockCSR(nsystem / n_stream_in_use_, NEQUATIONS, NEQUATIONS, NNZ,
+        cv_a_[i] = SUNMatrix_cuSparse_NewBlockCSR(n_system_per_stream, NEQUATIONS, NEQUATIONS, NNZ,
                                                   cusp_handle_[i]);
         cv_ls_[i] = SUNLinSol_cuSolverSp_batchQR(cv_y_[i], cv_a_[i], cusol_handle_[i]);
         SUNMatrix_cuSparse_SetFixedPattern(cv_a_[i], 1);
@@ -252,7 +305,6 @@ int Naunet::Solve(realtype *ab, realtype dt, NaunetData *data) {
         if (check_flag(&flag, "CVodeSetUserData", 1)) return 1;
 
         flag = CVode(cv_mem_[i], dt, cv_y_[i], &t0, CV_NORMAL);
-        if(check_flag(&flag, "CVode", 1)) return NAUNET_FAIL;
 
         N_VCopyFromDevice_Cuda(cv_y_[i]);
         realtype *local_ab = N_VGetHostArrayPointer_Cuda(cv_y_[i]);

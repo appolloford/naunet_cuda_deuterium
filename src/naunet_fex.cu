@@ -10,9 +10,11 @@
 #include "naunet_macros.h"
 #include "naunet_physics.h"
 
-#define IJth(A, i, j)        SM_ELEMENT_D(A, i, j)
-#define NVEC_CUDA_CONTENT(x) ((N_VectorContent_Cuda)(x->content))
-#define NVEC_CUDA_STREAM(x)  (NVEC_CUDA_CONTENT(x)->stream_exec_policy->stream())
+#define IJth(A, i, j)            SM_ELEMENT_D(A, i, j)
+#define NVEC_CUDA_CONTENT(x)     ((N_VectorContent_Cuda)(x->content))
+#define NVEC_CUDA_STREAM(x)      (NVEC_CUDA_CONTENT(x)->stream_exec_policy->stream())
+#define NVEC_CUDA_BLOCKSIZE(x)   (NVEC_CUDA_CONTENT(x)->stream_exec_policy->blockSize())
+#define NVEC_CUDA_GRIDSIZE(x, n) (NVEC_CUDA_CONTENT(x)->stream_exec_policy->gridSize(n))
 
 /* */
 __global__ void FexKernel(realtype *y, realtype *ydot, NaunetData *d_udata,
@@ -13681,9 +13683,12 @@ int Fex(realtype t, N_Vector u, N_Vector udot, void *user_data) {
                cudaMemcpyHostToDevice, stream);
     // cudaDeviceSynchronize();
 
-    unsigned block_size = min(BLOCKSIZE, nsystem);
-    unsigned grid_size =
-        max(1, min(MAX_NSYSTEMS_PER_STREAM / BLOCKSIZE, nsystem / BLOCKSIZE));
+    // unsigned block_size = min(BLOCKSIZE, nsystem);
+    // unsigned grid_size =
+    //     max(1, min(MAX_NSYSTEMS_PER_STREAM / BLOCKSIZE, nsystem / BLOCKSIZE));
+    size_t block_size = NVEC_CUDA_BLOCKSIZE(u);
+    size_t grid_size  = NVEC_CUDA_GRIDSIZE(u, nsystem);
+    // printf(">>>>>>>>>>>> gridDim, blockDim: %ld, %ld\n", grid_size, block_size);
     FexKernel<<<grid_size, block_size, 0, stream>>>(y, ydot, d_udata, nsystem);
 
     // cudaDeviceSynchronize();

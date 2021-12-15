@@ -10,7 +10,7 @@
 #define NTIMESTEPS 10045
 
 int main() {
-    int nsystem      = 1024;
+    int nsystem      = 4096;
     int nsteps       = 50;
     double spy       = 86400.0 * 365.0;
     double pi        = 3.14159265;
@@ -108,6 +108,7 @@ int main() {
         timer.start();
         naunet.Solve(y, dtyr * spy, data);
         timer.stop();
+        naunet.DebugInfo();
         // float duration = (float)timer.elapsed() / 1e6;
         double duration = timer.elapsed();
         fprintf(ttxt, "%8.5e \n", duration);
